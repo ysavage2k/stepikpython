@@ -1,66 +1,151 @@
 import math
 import time
+import pytest
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 
-def calc(x):
-    """Вычисление математической функции"""
-    return str(math.log(abs(12 * math.sin(int(x)))))
+def compute_answer():
+    """Вычисляет правильный ответ по заданной формуле: log(текущее время в секундах)."""
+    return str(math.log(int(time.time())))
 
 
-try:
-    browser = webdriver.Chrome()
-    browser.get("http://suninjuly.github.io/explicit_wait2.html")
+@pytest.fixture(scope="function")
+def browser():
+    driver = webdriver.Chrome()
+    driver.implicitly_wait(10)
+    yield driver
+    driver.quit()
 
-    # 1. Ждем, когда цена дома уменьшится до $100 (ждем не менее 12 секунд)
-    price_element = browser.find_element(By.ID, "price")
 
-    # Используем явное ожидание
-    wait = WebDriverWait(browser, 15)  # Ожидание до 15 секунд
+@pytest.mark.parametrize('url', [
+    "https://stepik.org/lesson/236895/step/1",
+    "https://stepik.org/lesson/236896/step/1",
+    "https://stepik.org/lesson/236897/step/1",
+    "https://stepik.org/lesson/236898/step/1",
+    "https://stepik.org/lesson/236899/step/1",
+    "https://stepik.org/lesson/236903/step/1",
+    "https://stepik.org/lesson/236904/step/1",
+    "https://stepik.org/lesson/236905/step/1"
+])
+def test_stepik_feedback(browser, url):
+    print(f"\n=== Тестирую URL: {url} ===")
 
-    # Ждем, пока в элементе с id="price" появится текст "$100"
-    wait.until(
-        EC.text_to_be_present_in_element((By.ID, "price"), "$100")
+    # 1. Открыть страницу
+    browser.get(url)
+
+    # 2. Авторизация
+    login = "hlvqwe@gmail.com"
+    password = "kbR)3cuZiAnxYM+"
+
+    print("Требуется авторизация")
+
+    # Находим и нажимаем кнопку "Войти"
+    try:
+        login_button = browser.find_element(By.CSS_SELECTOR, "a.navbar__auth_login")
+    except:
+        login_button = browser.find_element(By.XPATH, "//a[contains(text(), 'Войти')]")
+
+    print("Найдена кнопка входа, нажимаю...")
+    login_button.click()
+
+    # Ждём форму и заполняем
+    email_input = WebDriverWait(browser, 10).until(
+        EC.presence_of_element_located((By.ID, "id_login_email"))
     )
+    print("Форма логина загружена")
 
-    # 2. Нажимаем на кнопку "Book"
-    book_button = browser.find_element(By.ID, "book")
-    book_button.click()
+    email_input.send_keys(login)
+    password_input = browser.find_element(By.ID, "id_login_password")
+    password_input.send_keys(password)
 
-    # 3. Решаем математическую задачу
-    # Получаем значение x
-    x_element = browser.find_element(By.ID, "input_value")
-    x = x_element.text
-    y = calc(x)
-
-    # Вводим ответ
-    answer_input = browser.find_element(By.ID, "answer")
-    answer_input.send_keys(y)
-
-    # Нажимаем кнопку Submit
-    submit_button = browser.find_element(By.ID, "solve")
+    submit_button = browser.find_element(By.CSS_SELECTOR, "button.sign-form__btn")
     submit_button.click()
 
-    # 4. Получаем число из alert
-    time.sleep(1)
-    alert = browser.switch_to.alert
-    result_text = alert.text
+    # Ждём завершения авторизации
+    WebDriverWait(browser, 10).until(
+        EC.invisibility_of_element_located((By.CSS_SELECTOR, "div.modal-dialog"))
+    )
+    print("Авторизация успешна")
 
-    # Извлекаем число из текста
-    import re
+    # 3. Ввести ответ
+    answer = compute_answer()
+    print(f"Вычисленный ответ: {answer}")
 
-    numbers = re.findall(r"\d+\.\d+|\d+", result_text)
-    if numbers:
-        answer = numbers[-1]
-        print(f"Число для ответа: {answer}")
-    else:
-        print(f"Весь текст alert: {result_text}")
+    # Находим поле для ответа
+    textarea = WebDriverWait(browser, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "textarea.ember-text-area"))
+    )
+    print("Текстовое поле найдено")
 
-    alert.accept()
-#test com
-finally:
-    time.sleep(5)
-    browser.quit()
+    textarea.clear()
+    textarea.send_keys(answer)
+    print("Ответ введён")
+
+    # 4. Нажать "Отправить"
+    submit_button = browser.find_element(By.CSS_SELECTOR, "button.submit-submission")
+    submit_button.click()
+    print("Кнопка 'Отправить' нажата")
+
+    # 5. Ждём ОПЦИОНАЛЬНЫЙ ФИДБЕК (чёрное поле с текстом)
+    # Даём время на обработку ответа
+    time.sleep(3)
+
+    # Ищем именно элемент с фидбеком
+    try:
+        # Сначала ищем по специфичным классам
+        feedback_element = browser.find_element(By.CSS_SELECTOR,
+                                                "div.attempt-message_correct, "
+                                                "div.attempt__message.attempt__message_correct, "
+                                                "div.smart-hints__feedback")
+    except:
+        try:
+            # Ищем по тексту "Correct" или "Правильно"
+            feedback_element = browser.find_element(By.XPATH,
+                                                    "//div[contains(text(), 'Correct') or contains(text(), 'Правильно')]")
+        except:
+            try:
+                # Ищем любой небольшой элемент с фидбеком (не весь блок страницы)
+                all_divs = browser.find_elements(By.CSS_SELECTOR, "div")
+                for div in all_divs:
+                    text = div.text.strip()
+                    if text and len(text) < 100:  # Ищем короткий текст
+                        print(f"Найден короткий текст: '{text}'")
+                        feedback_element = div
+                        break
+                else:
+                    raise Exception("Не найден элемент с фидбеком")
+            except:
+                # Если всё ещё не нашли, используем последний резерв
+                feedback_element = browser.find_element(By.CSS_SELECTOR, "div.smart-hints")
+
+    # 6. Проверяем текст
+    feedback_text = feedback_element.text.strip()
+    print(f"Текст фидбека: '{feedback_text}'")
+
+    # Удаляем лишние пробелы и переносы строк
+    clean_feedback = ' '.join(feedback_text.split())
+
+    expected_text = "Correct!"
+
+    # Сравниваем
+    if clean_feedback != expected_text:
+        print(f"=== ФРАГМЕНТ ПОСЛАНИЯ НАЙДЕН: '{clean_feedback}' ===")
+        # Сохраняем в файл
+        with open("message.txt", "a", encoding="utf-8") as f:
+            f.write(f"{url}\n{clean_feedback}\n\n")
+
+    # Тест падает, если не "Correct!"
+    assert clean_feedback == expected_text, \
+        f'Ожидался текст "{expected_text}", но получен "{clean_feedback}". ' \
+        f'URL: {url}'
+
+    print("✓ Тест пройден")
+
+
+if __name__ == "__main__":
+    # Очищаем файл с сообщениями
+    open("message.txt", "w").close()
+    pytest.main(["-v", "-s", __file__])
