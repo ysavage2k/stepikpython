@@ -60,7 +60,7 @@ try:
         print(f"Весь текст alert: {result_text}")
 
     alert.accept()
-#test
+#test com
 finally:
     time.sleep(5)
     browser.quit()
